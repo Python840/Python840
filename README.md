@@ -3,7 +3,7 @@
 
 
 - 🔭 I’m currently working on (No current projects, just expanding my knowledge)
-- 🌱 I’m currently learning Python mastering syntax, C++ with Unreal Engine
+- 🌱 I’m currently learning Machine Learning, Unity and Neural Networks.
 - 👯 I’m looking to collaborate on (Nothing yet)
 - 🤔 I’m looking for help with (Setting up Github profile)
 - 💬 Ask me about anything
