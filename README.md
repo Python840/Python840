@@ -1,8 +1,8 @@
 ### Hi there 👋
 
 
-
-- 🔭 I’m currently working on WebAI, Thirteen Nights at the Predator.
+- 📖✍️ Author of **Machine Learning: From Math to Models**.
+- 🔭 I’m currently writing a book about Machine Learning (Machine Learning: From Math to Models).
 - 🌱 I’m currently learning Machine Learning and Unity, along with other libraries (like Tkinter).
 - 👯 I’m not collabing yet
 - 🤔 I seek knowledge. I'm a curious person.
