@@ -8,27 +8,48 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 4
     steps:
-      - name: Retrieve native template export and programme snapshot
+      - name: Retrieve active official libraries and specifications
         shell: bash
         run: |
           python3 - <<'PY'
-          import hashlib,json,pathlib,urllib.request,urllib.parse
+          import datetime,hashlib,json,pathlib,re,urllib.request,urllib.parse
           out=pathlib.Path('sources'); out.mkdir()
-          url='https://repo.progsbase.com/repoviewer/no.inductive.libraries/TextualTemplates/0.1.22/?'+urllib.parse.urlencode({'view':'bundle','accept':'text/plain;subtype=text/x-c;subtypeversion=99'})
-          with urllib.request.urlopen(url,timeout=30) as r: raw=r.read(3000001)
-          if len(raw)>3000000: raise ValueError('size limit')
-          (out/'TextualTemplates-0.1.22.c').write_bytes(raw)
-          manifest={'file':'TextualTemplates-0.1.22.c','url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
-          print(json.dumps(manifest));(out/'manifest.json').write_text(json.dumps(manifest,indent=2))
-          request=urllib.request.Request('https://certs.progsbase.com',data=json.dumps({'command':'GetBugbountyOverview'}).encode(),headers={'Content-Type':'application/json'})
-          with urllib.request.urlopen(request,timeout=20) as r: overview=r.read()
-          (out/'bounty-overview.json').write_bytes(overview)
-          print('ACTIVE_TARGET',[r for r in json.loads(overview)['rows'] if r['function']=='GenerateDocument'])
+          manifest=[]
+          def request(url,payload=None):
+              data=None if payload is None else json.dumps(payload).encode()
+              req=urllib.request.Request(url,data=data,headers={'Content-Type':'application/json','User-Agent':'Python840-correctness-research/1.0'})
+              with urllib.request.urlopen(req,timeout=25) as r: raw=r.read(3000001)
+              if len(raw)>3000000: raise ValueError('source size limit')
+              return raw
+          def save(name,url,raw):
+              (out/name).write_bytes(raw)
+              manifest.append({'file':name,'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)})
+          overview=request('https://certs.progsbase.com',{'command':'GetBugbountyOverview'})
+          save('bounty-overview.json','https://certs.progsbase.com',overview)
+          rows=[r for r in json.loads(overview)['rows'] if r['amount']>0 and not r['candidate'] and not r['underreview']]
+          print('ACTIVE',json.dumps(rows))
+          seen=set()
+          for r in rows:
+              payload={'command':'GetBugbountyDescription','namespace':r['orgnamespace'],'version':r['version'],'library':r['lib'],'function':r['function']}
+              raw=request('https://certs.progsbase.com',payload)
+              save(r['function']+'-bounty-description.json','https://certs.progsbase.com',raw)
+              print('SPEC',r['function'],raw.decode())
+              key=(r['orgnamespace'],r['lib'],r['version'])
+              if key in seen: continue
+              seen.add(key)
+              base='https://repo.progsbase.com/repoviewer/'+'/'.join(key)+'/'
+              raw=request(base)
+              save(r['lib']+'-docs.html',base,raw)
+              for ext,mime in [('java','text/plain;subtype=text/x-java;subtypeversion=5'),('py','text/plain;subtype=text/x-python;subtypeversion=2')]:
+                  url=base+'?'+urllib.parse.urlencode({'view':'bundle','accept':mime})
+                  save(r['lib']+'-'+r['version']+'.'+ext,url,request(url))
+          (out/'manifest.json').write_text(json.dumps({'retrieved_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'files':manifest},indent=2))
+          print('SAVED',len(manifest),'resources')
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: native-template-source
+          name: active-correctness-sources
           path: sources/
           retention-days: 7
