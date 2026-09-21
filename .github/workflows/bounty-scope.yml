@@ -8,29 +8,27 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 2
     steps:
-      - name: Retrieve exact public template source and documentation
+      - name: Retrieve native template export and programme snapshot
         shell: bash
         run: |
           python3 - <<'PY'
           import hashlib,json,pathlib,urllib.request,urllib.parse
           out=pathlib.Path('sources'); out.mkdir()
-          manifest=[]
-          def save(url,name):
-              with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Python840-correctness-research/1.0'}),timeout=30) as r: raw=r.read(3000001)
-              if len(raw)>3000000: raise ValueError('size limit')
-              (out/name).write_bytes(raw)
-              row={'file':name,'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)};manifest.append(row);print(json.dumps(row))
-          root='https://repo.progsbase.com/repoviewer/no.inductive.libraries/TextualTemplates/0.1.22/'
-          for ext,mime in [('py','text/plain;subtype=text/x-python;subtypeversion=2'),('java','text/plain;subtype=text/x-java;subtypeversion=5')]:
-              save(root+'?'+urllib.parse.urlencode({'view':'bundle','accept':mime}),'TextualTemplates-0.1.22.'+ext)
-          for ns,lib,v in [('no.inductive.libraries','TextualTemplates','0.1.22'),('no.inductive.libraries','LoadBalancer','0.1.4'),('no.inductive.idea10.programs','datetime','0.1.19')]:
-              save('https://repo.progsbase.com/repoviewer/'+ns+'/'+lib+'/'+v+'/',lib+'-docs.html')
-          (out/'manifest.json').write_text(json.dumps(manifest,indent=2))
+          url='https://repo.progsbase.com/repoviewer/no.inductive.libraries/TextualTemplates/0.1.22/?'+urllib.parse.urlencode({'view':'bundle','accept':'text/plain;subtype=text/x-c;subtypeversion=99'})
+          with urllib.request.urlopen(url,timeout=30) as r: raw=r.read(3000001)
+          if len(raw)>3000000: raise ValueError('size limit')
+          (out/'TextualTemplates-0.1.22.c').write_bytes(raw)
+          manifest={'file':'TextualTemplates-0.1.22.c','url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
+          print(json.dumps(manifest));(out/'manifest.json').write_text(json.dumps(manifest,indent=2))
+          request=urllib.request.Request('https://certs.progsbase.com',data=json.dumps({'command':'GetBugbountyOverview'}).encode(),headers={'Content-Type':'application/json'})
+          with urllib.request.urlopen(request,timeout=20) as r: overview=r.read()
+          (out/'bounty-overview.json').write_bytes(overview)
+          print('ACTIVE_TARGET',[r for r in json.loads(overview)['rows'] if r['function']=='GenerateDocument'])
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: template-and-docs
+          name: native-template-source
           path: sources/
           retention-days: 7
