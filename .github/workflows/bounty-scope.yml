@@ -8,48 +8,23 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 2
     steps:
-      - name: Retrieve active official libraries and specifications
+      - name: Verify public programme status and contact
         shell: bash
         run: |
           python3 - <<'PY'
-          import datetime,hashlib,json,pathlib,re,urllib.request,urllib.parse
-          out=pathlib.Path('sources'); out.mkdir()
-          manifest=[]
-          def request(url,payload=None):
-              data=None if payload is None else json.dumps(payload).encode()
-              req=urllib.request.Request(url,data=data,headers={'Content-Type':'application/json','User-Agent':'Python840-correctness-research/1.0'})
-              with urllib.request.urlopen(req,timeout=25) as r: raw=r.read(3000001)
-              if len(raw)>3000000: raise ValueError('source size limit')
-              return raw
-          def save(name,url,raw):
-              (out/name).write_bytes(raw)
-              manifest.append({'file':name,'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)})
-          overview=request('https://certs.progsbase.com',{'command':'GetBugbountyOverview'})
-          save('bounty-overview.json','https://certs.progsbase.com',overview)
-          rows=[r for r in json.loads(overview)['rows'] if r['amount']>0 and not r['candidate'] and not r['underreview']]
-          print('ACTIVE',json.dumps(rows))
-          seen=set()
-          for r in rows:
-              payload={'command':'GetBugbountyDescription','namespace':r['orgnamespace'],'version':r['version'],'library':r['lib'],'function':r['function']}
-              raw=request('https://certs.progsbase.com',payload)
-              save(r['function']+'-bounty-description.json','https://certs.progsbase.com',raw)
-              print('SPEC',r['function'],raw.decode())
-              key=(r['orgnamespace'],r['lib'],r['version'])
-              if key in seen: continue
-              seen.add(key)
-              base='https://repo.progsbase.com/repoviewer/'+'/'.join(key)+'/'
-              raw=request(base)
-              save(r['lib']+'-docs.html',base,raw)
-              for ext,mime in [('java','text/plain;subtype=text/x-java;subtypeversion=5'),('py','text/plain;subtype=text/x-python;subtypeversion=2')]:
-                  url=base+'?'+urllib.parse.urlencode({'view':'bundle','accept':mime})
-                  save(r['lib']+'-'+r['version']+'.'+ext,url,request(url))
-          (out/'manifest.json').write_text(json.dumps({'retrieved_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'files':manifest},indent=2))
-          print('SAVED',len(manifest),'resources')
+          import datetime,json,re,urllib.request
+          def fetch(url,payload=None):
+              req=urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers={'Content-Type':'application/json','User-Agent':'Python840-correctness-research/1.0'})
+              with urllib.request.urlopen(req,timeout=20) as response: return response.read(1000000).decode()
+          print('CHECKED_UTC',datetime.datetime.now(datetime.timezone.utc).isoformat())
+          overview=json.loads(fetch('https://certs.progsbase.com',{'command':'GetBugbountyOverview'}))
+          row=next(row for row in overview['rows'] if row['function']=='GenerateDocument')
+          print('TARGET',json.dumps(row))
+          page=fetch('https://www.progsbase.com/bug-bounty/')
+          addresses=set(re.findall(r'mailto:([^\"\s<>]+)',page))
+          for encoded in re.findall(r'data-cfemail=[\"\x27]([0-9a-fA-F]+)',page):
+              data=bytes.fromhex(encoded);addresses.add(bytes(value^data[0] for value in data[1:]).decode())
+          print('PUBLISHED_EMAILS',json.dumps(sorted(addresses)))
           PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: active-correctness-sources
-          path: sources/
-          retention-days: 7
