@@ -8,28 +8,41 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
-      - name: Read published bounty records
+      - name: Preserve public scope and source exports
         shell: bash
         run: |
           python3 - <<'PY'
-          import hashlib, json, urllib.request
-          def query(payload):
-              req=urllib.request.Request('https://certs.progsbase.com', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json','User-Agent':'Python840-correctness-research/1.0'})
-              with urllib.request.urlopen(req,timeout=20) as response:
-                  raw=response.read(2000001)
-              if len(raw)>2000000: raise ValueError('response too large')
-              print('RESPONSE_SHA256',hashlib.sha256(raw).hexdigest())
-              return json.loads(raw)
-          overview=query({'command':'GetBugbountyOverview'})
-          print('OVERVIEW_KEYS',list(overview))
-          rows=overview.get('rows',[])
-          for row in rows: print('BOUNTY_ROW',json.dumps(row,ensure_ascii=True))
-          selected=[r for r in rows if 50<=float(r.get('amount',0))<=150 and not r.get('underreview',False)]
-          for row in selected[:12]:
-              print('DESCRIPTION_FOR',row.get('function'),row.get('lib'),row.get('version'))
-              print(json.dumps(query({'command':'GetBugbountyDescription','namespace':row['orgnamespace'],'version':row['version'],'library':row['lib'],'function':row['function']}),ensure_ascii=True))
-          with urllib.request.urlopen('https://repo.progsbase.com/common/languages.js',timeout=20) as response:
-              print('LANGUAGE_EXPORT_FORMATS',response.read(30000).decode())
+          import hashlib,json,pathlib,urllib.request,urllib.parse
+          out=pathlib.Path('public-sources'); out.mkdir()
+          def read(url,payload=None):
+              req=urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers={'Content-Type':'application/json','User-Agent':'Python840-correctness-research/1.0'})
+              with urllib.request.urlopen(req,timeout=30) as r: raw=r.read(5000001)
+              if len(raw)>5000000: raise ValueError('source size limit exceeded')
+              return raw
+          overview=json.loads(read('https://certs.progsbase.com',{'command':'GetBugbountyOverview'}))
+          (out/'bounty-overview.json').write_text(json.dumps(overview,indent=2))
+          libraries=[('JSON','no.inductive.idea10.programs','0.5.14'),('datetime','no.inductive.idea10.programs','0.1.19'),('numbers','no.inductive.idea10.programs','0.1.35'),('Unicode','no.inductive.libraries','0.1.5'),('Bytes','no.inductive.libraries','0.1.13'),('Sequencer','no.inductive.libraries','0.1.9'),('LoadBalancer','no.inductive.libraries','0.1.4')]
+          manifest=[]
+          for lib,ns,version in libraries:
+              rows=[r for r in overview['rows'] if r['lib']==lib and r['version']==version and r['amount']>=100 and not r['candidate'] and not r['underreview']]
+              if not rows: print('SKIP_NOT_ACTIVE',lib); continue
+              for row in rows:
+                  detail=read('https://certs.progsbase.com',{'command':'GetBugbountyDescription','namespace':ns,'version':version,'library':lib,'function':row['function']})
+                  (out/(lib+'-'+row['function']+'-scope.json')).write_bytes(detail)
+              for ext,mime in [('py','text/plain;subtype=text/x-python;subtypeversion=2'),('java','text/plain;subtype=text/x-java;subtypeversion=5')]:
+                  url='https://repo.progsbase.com/repoviewer/'+ns+'/'+lib+'/'+version+'/?'+urllib.parse.urlencode({'view':'bundle','accept':mime})
+                  raw=read(url); name=lib+'-'+version+'.'+ext
+                  (out/name).write_bytes(raw)
+                  item={'file':name,'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}; manifest.append(item); print(json.dumps(item))
+                  print('HEADER',raw[:150].decode('utf-8','replace'))
+          (out/'manifest.json').write_text(json.dumps(manifest,indent=2))
           PY
+      - name: Archive public source and scope evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: progsbase-public-sources
+          path: public-sources/
+          retention-days: 7
+          if-no-files-found: error
