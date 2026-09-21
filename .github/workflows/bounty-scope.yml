@@ -1,0 +1,49 @@
+name: Inspect public bounty scope
+on:
+  push:
+    branches: ['bounty/progsbase-correctness-20260921']
+    paths: ['.github/workflows/bounty-scope.yml']
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read public programme page and its same-site scripts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, re, urllib.request, urllib.parse
+          from html.parser import HTMLParser
+          class Scripts(HTMLParser):
+              def __init__(self):
+                  super().__init__(); self.urls=[]; self.inline=[]; self.inside=False
+              def handle_starttag(self, tag, attrs):
+                  if tag == 'script':
+                      d=dict(attrs); self.inside='src' not in d
+                      if 'src' in d: self.urls.append(d['src'])
+              def handle_endtag(self, tag):
+                  if tag == 'script': self.inside=False
+              def handle_data(self, data):
+                  if self.inside: self.inline.append(data)
+          def read(url):
+              req=urllib.request.Request(url,headers={'User-Agent':'Python840-correctness-research/1.0'})
+              with urllib.request.urlopen(req,timeout=20) as response:
+                  data=response.read(2000001)
+              if len(data)>2000000: raise ValueError('public resource exceeds size limit')
+              print('SOURCE',url,'SHA256',hashlib.sha256(data).hexdigest(),'BYTES',len(data))
+              return data.decode('utf-8')
+          url='https://www.progsbase.com/bug-bounty/'
+          page=read(url); parser=Scripts(); parser.feed(page)
+          print('SCRIPT_URLS',parser.urls)
+          for script in parser.inline:
+              if any(word in script.lower() for word in ['bounty','row','http','function']):
+                  print('INLINE_SCRIPT\n'+script[:20000])
+          for src in parser.urls:
+              target=urllib.parse.urljoin(url,src)
+              if urllib.parse.urlparse(target).hostname not in ['www.progsbase.com','progsbase.com','repo.progsbase.com']: continue
+              if any(word in target.lower() for word in ['angular','jquery','bootstrap','analytics','googletag','fontawesome']): continue
+              try: print('SCRIPT_BODY\n'+read(target)[:30000])
+              except Exception as e: print('FETCH_FAILED',target,str(e))
+          PY
