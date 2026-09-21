@@ -8,41 +8,29 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 3
     steps:
-      - name: Preserve public scope and source exports
+      - name: Retrieve exact public template source and documentation
         shell: bash
         run: |
           python3 - <<'PY'
           import hashlib,json,pathlib,urllib.request,urllib.parse
-          out=pathlib.Path('public-sources'); out.mkdir()
-          def read(url,payload=None):
-              req=urllib.request.Request(url,data=None if payload is None else json.dumps(payload).encode(),headers={'Content-Type':'application/json','User-Agent':'Python840-correctness-research/1.0'})
-              with urllib.request.urlopen(req,timeout=30) as r: raw=r.read(5000001)
-              if len(raw)>5000000: raise ValueError('source size limit exceeded')
-              return raw
-          overview=json.loads(read('https://certs.progsbase.com',{'command':'GetBugbountyOverview'}))
-          (out/'bounty-overview.json').write_text(json.dumps(overview,indent=2))
-          libraries=[('JSON','no.inductive.idea10.programs','0.5.14'),('datetime','no.inductive.idea10.programs','0.1.19'),('numbers','no.inductive.idea10.programs','0.1.35'),('Unicode','no.inductive.libraries','0.1.5'),('Bytes','no.inductive.libraries','0.1.13'),('Sequencer','no.inductive.libraries','0.1.9'),('LoadBalancer','no.inductive.libraries','0.1.4')]
+          out=pathlib.Path('sources'); out.mkdir()
           manifest=[]
-          for lib,ns,version in libraries:
-              rows=[r for r in overview['rows'] if r['lib']==lib and r['version']==version and r['amount']>=100 and not r['candidate'] and not r['underreview']]
-              if not rows: print('SKIP_NOT_ACTIVE',lib); continue
-              for row in rows:
-                  detail=read('https://certs.progsbase.com',{'command':'GetBugbountyDescription','namespace':ns,'version':version,'library':lib,'function':row['function']})
-                  (out/(lib+'-'+row['function']+'-scope.json')).write_bytes(detail)
-              for ext,mime in [('py','text/plain;subtype=text/x-python;subtypeversion=2'),('java','text/plain;subtype=text/x-java;subtypeversion=5')]:
-                  url='https://repo.progsbase.com/repoviewer/'+ns+'/'+lib+'/'+version+'/?'+urllib.parse.urlencode({'view':'bundle','accept':mime})
-                  raw=read(url); name=lib+'-'+version+'.'+ext
-                  (out/name).write_bytes(raw)
-                  item={'file':name,'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}; manifest.append(item); print(json.dumps(item))
-                  print('HEADER',raw[:150].decode('utf-8','replace'))
+          def save(url,name):
+              with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'Python840-correctness-research/1.0'}),timeout=30) as r: raw=r.read(3000001)
+              if len(raw)>3000000: raise ValueError('size limit')
+              (out/name).write_bytes(raw)
+              row={'file':name,'url':url,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)};manifest.append(row);print(json.dumps(row))
+          root='https://repo.progsbase.com/repoviewer/no.inductive.libraries/TextualTemplates/0.1.22/'
+          for ext,mime in [('py','text/plain;subtype=text/x-python;subtypeversion=2'),('java','text/plain;subtype=text/x-java;subtypeversion=5')]:
+              save(root+'?'+urllib.parse.urlencode({'view':'bundle','accept':mime}),'TextualTemplates-0.1.22.'+ext)
+          for ns,lib,v in [('no.inductive.libraries','TextualTemplates','0.1.22'),('no.inductive.libraries','LoadBalancer','0.1.4'),('no.inductive.idea10.programs','datetime','0.1.19')]:
+              save('https://repo.progsbase.com/repoviewer/'+ns+'/'+lib+'/'+v+'/',lib+'-docs.html')
           (out/'manifest.json').write_text(json.dumps(manifest,indent=2))
           PY
-      - name: Archive public source and scope evidence
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: progsbase-public-sources
-          path: public-sources/
+          name: template-and-docs
+          path: sources/
           retention-days: 7
-          if-no-files-found: error
